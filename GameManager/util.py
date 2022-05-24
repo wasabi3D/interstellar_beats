@@ -88,13 +88,14 @@ class GameObject(Sprite):
     """
 
     def __init__(self, pos: Vector2, rotation: float, image: pygame.Surface, name: str, enabled=True,
-                 parent=None, alpha=255, tags: Optional[list[str]] = None):
+                 parent=None, alpha=255, tags: Optional[list[str]] = None, simple_mouse_up=False):
         """
         :param pos: La position initiale de l'objet. La valeur par défaut est pygame.Vector2(0, 0).
         :param rotation: La rotation en radian initiale de l'objet. La valeur par défaut est 0.
         :param image: L'image de l'objet initiale.
         :param enabled: Si l'objet est active quand ce dernier est crée ou pas.
         :param name: Le nom de l'objet.
+        :param simple_mouse_up: si on détecte le mouse up event même si la souris n'est pas dans l'image
         """
 
         super().__init__()
@@ -109,6 +110,9 @@ class GameObject(Sprite):
         self.surf_mult: SurfaceModifier = SurfaceModifier(255, 255, 255, alpha)
         self.enabled = enabled
         self.tags = [] if tags is None else tags
+        self.simple_mouseup = simple_mouse_up
+        self.early_update_done, self.update_done = False, False
+        self.last_early_update, self.last_update = 0, 0
 
         self.mouse_in_rect = False
 
@@ -184,14 +188,16 @@ class GameObject(Sprite):
         """
         Fonction appellée au début d'une frame, avant les events.
         """
-        # print(pygame.mouse.get_pos(), self.image.get_rect(center=self.get_screen_pos()))
+        if sing.ROOT.tick_count != self.last_early_update:
+            self.early_update_done = False
+        if self.early_update_done:
+            return
         if is_included(tuple2Vec2(pygame.mouse.get_pos()), self.image.get_rect(center=self.get_screen_pos())):
             if not self.mouse_in_rect:
                 self.on_mouse_rect_enter()
                 self.mouse_in_rect = True
 
             for btn, state in enumerate(sing.ROOT.mouse_downs):
-
                 if state:
                     self.on_mouse_down(btn)
 
@@ -203,6 +209,14 @@ class GameObject(Sprite):
                 self.on_mouse_rect_exit()
                 self.mouse_in_rect = False
 
+            if self.simple_mouseup:
+                for btn, state in enumerate(sing.ROOT.mouse_ups):
+                    if state:
+                        self.on_mouse_up(btn)
+
+        self.early_update_done = True
+        self.last_early_update = sing.ROOT.tick_count
+
         for child in self.children.values():
             child.early_update()
 
@@ -211,6 +225,13 @@ class GameObject(Sprite):
         Fonction appellée après early_update() et les events.
         Permet de mettre à jour l'objet et de performer certains actions en overload-ant cette fonction.
         """
+        if sing.ROOT.tick_count != self.last_update:
+            self.update_done = False
+        if self.update_done:
+            return
+
+        self.last_update = sing.ROOT.tick_count
+
         for child in self.children.values():
             child.update()
 

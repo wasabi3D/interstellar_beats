@@ -48,6 +48,9 @@ class GameRoot:
         self.objects_by_tag: dict[str, list[util.GameObject]] = {}
         self.new_object_index = 0
         self.display_priority: list[str] = []
+        self.parameters: dict = {}
+        self.sounds: dict[str, pygame.mixer.Sound] = {}
+        self.tick_count = 0
 
     def mainloop(self):
         """
@@ -62,6 +65,10 @@ class GameRoot:
             t = pygame.time.get_ticks()
             self.key_ups.clear()
             self.key_downs.clear()
+            last_mouse_ups = self.mouse_ups.copy()
+            last_mouse_downs = self.mouse_downs.copy()
+            self.mouse_ups.clear()
+            self.mouse_downs.clear()
             self.mouse_ups = [False, False, False]
             self.mouse_downs = [False, False, False]
 
@@ -77,11 +84,14 @@ class GameRoot:
                 elif event.type == pygame.MOUSEBUTTONUP:
                     if event.button > 3:  # MOUSE SCROLL
                         continue
+                    # if not last_mouse_ups[event.button - 1]:
                     self.mouse_ups[event.button - 1] = True
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     if event.button > 3:  # MOUSE SCROLL
                         continue
+                    # if not last_mouse_downs[event.button - 1]:
                     self.mouse_downs[event.button - 1] = True
+
             # ___________
 
             # ___MAIN UPDATE___
@@ -126,6 +136,7 @@ class GameRoot:
             pygame.display.update()
             self.clock.tick(self.fps_limit)
             self.delta = (pygame.time.get_ticks() - t) / 1000
+            self.tick_count += 1
 
     def add_gameObject(self, *gameObject: util.GameObject, immediate=False):
         """
@@ -244,3 +255,9 @@ class GameRoot:
     def setup_priority(self, order: list[str]) -> None:
         self.display_priority = [x for x in order if x in self.game_objects]
 
+    def set_parameter(self, key, value) -> None:
+        self.parameters[key] = value
+
+    def modify_volume(self, vol: float) -> None:
+        for sound in self.sounds.values():
+            sound.set_volume(vol)
