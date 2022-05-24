@@ -4,7 +4,7 @@ from GameExtensions.UI import *
 
 from GameManager.MainLoopManager import GameRoot
 import GameManager.singleton as sing
-from objects import Star, NoteRenderer, load_map
+from objects import Star, NoteRenderer, load_map, PauseManager
 from pygame import Vector2
 
 import os
@@ -15,7 +15,7 @@ def play():
     star = Star(Vector2(0, 0), 10, pygame.mixer.Sound("resources/musics/surface.mp3"), "star")
     notes = load_map("resources/maps/surface.scr")
 
-    sing.ROOT.add_gameObject(star, NoteRenderer(notes))
+    sing.ROOT.add_gameObject(star, NoteRenderer(notes), PauseManager())
 
 
 def edit():
@@ -28,19 +28,25 @@ def edit():
 
     display_path_label = TextLabel(Vector2(0, 20), 0, pygame.font.SysFont("Arial", 20), "",
                                    (200, 200, 200), "display_path_label", anchor=CENTER)
+    go_btn = Button(Vector2(0, 40), 0, pygame.Surface((50, 50)), "go_btn",
+                    text="Go", font=pygame.font.SysFont("Arial", 20), text_color=(200, 200, 200), anchor=CENTER)
+    go_btn.set_enabled(False)
 
     def ask_file():
         import tkinter.filedialog
         top = tkinter.Tk()
         top.withdraw()
-        file_name = tkinter.filedialog.askopenfilename(parent=top, filetypes=[("Music file", "*.mp3", "*.wav")])
+        file_name = tkinter.filedialog.askopenfilename(parent=top, filetypes=[("Music file", "*.mp3; *.wav")])
         top.destroy()
         display_path_label.set_text(file_name)
+        go_btn.set_enabled(True)
+
     choose_btn = Button(Vector2(0, -20), 0, pygame.Surface((50, 50)), "choose_btn",
                         text="Choose", font=pygame.font.SysFont("Arial", 20), text_color=(200, 200, 200),
                         on_mouse_up_func=ask_file, anchor=CENTER)
 
-    choose_panel.children.add_gameobjects(choose_label, choose_btn, display_path_label)
+
+    choose_panel.children.add_gameobjects(choose_label, choose_btn, display_path_label, go_btn)
     sing.ROOT.add_gameObject(choose_panel)
 
 
@@ -73,7 +79,7 @@ def menu():
 
 def main():
     root = GameRoot((1440, 900), (20, 20, 55), "Test", os.path.dirname(os.path.realpath(__file__)),
-                    Vector2(0, 0), display_flag=pygame.FULLSCREEN)
+                    Vector2(0, 0), display_flag=pygame.FULLSCREEN, fps_limit=200)
     menu()
 
     root.mainloop()

@@ -2,7 +2,7 @@ from GameManager.util import GameObject, tuple2Vec2
 import GameManager.singleton as sing
 from GameManager.resources import load_img
 
-from GameExtensions.UI import TextLabel
+from GameExtensions.UI import *
 from GameExtensions.locals import *
 
 import pygame
@@ -13,6 +13,46 @@ from locals import *
 from typing import Union
 import pathlib
 import os
+
+
+PAUSE = "pause"
+
+
+class PauseManager(GameObject):
+    def __init__(self):
+        super().__init__(Vector2(0, 0), 0, pygame.Surface((0, 0)), "pause_manager")
+        self.music_paused = False
+
+    def early_update(self) -> None:
+        if pygame.K_ESCAPE in sing.ROOT.key_downs:
+            if PAUSE in sing.ROOT.parameters.keys() and sing.ROOT.parameters[PAUSE]:
+                self.resume()
+                self.music_paused = False
+            else:
+                sing.ROOT.set_parameter(PAUSE, True)
+                self.generate_pause_menu()
+                self.music_paused = True
+                pygame.mixer.pause()
+
+    def generate_pause_menu(self):
+        import main
+
+        pause_panel = BaseUIObject(Vector2(0, 0), 0, pygame.Surface((100, 500)), "pause_panel", anchor=CENTER)
+        title_label = TextLabel(Vector2(0, 20), 0, pygame.font.SysFont("Arial", 25), "Pause", (200, 200, 200),
+                                "title_label", anchor=N)
+        resume_btn = Button(Vector2(0, 0), 0, pygame.Surface((100, 20)), "resume_btn", text="Resume",
+                            font=pygame.font.SysFont("Arial", 15), text_color=(200, 200, 200), anchor=CENTER,
+                            on_mouse_up_func=self.resume)
+        exit_btn = Button(Vector2(0, 30), 0, pygame.Surface((100, 20)), "exit_btn", text="Exit",
+                          font=pygame.font.SysFont("Arial", 15), text_color=(200, 200, 200), anchor=CENTER,
+                          on_mouse_up_func=main.menu)
+        pause_panel.children.add_gameobjects(title_label, resume_btn, exit_btn)
+        sing.ROOT.add_gameObject(pause_panel)
+
+    def resume(self):
+        sing.ROOT.set_parameter(PAUSE, False)
+        sing.ROOT.remove_object(sing.ROOT.game_objects["pause_panel"])
+        pygame.mixer.unpause()
 
 
 class Star(GameObject):
@@ -27,21 +67,26 @@ class Star(GameObject):
 
         self.music = sound
 
+        self.timer = 0
+
         sing.ROOT.add_gameObject(TextLabel(Vector2(0, 50), 0, pygame.font.SysFont("Arial", 25, bold=True),
                                            "Press space to start", (190, 190, 190), "start_label", anchor=N))
 
     def early_update(self) -> None:
         if not self.started:
             if pygame.K_SPACE in sing.ROOT.key_downs:
-                self.start_time = pygame.time.get_ticks()
                 self.started = True
                 sing.ROOT.remove_object(sing.ROOT.game_objects["start_label"])
                 self.music.play()
             return
-        cur_time = pygame.time.get_ticks() - self.start_time
+        if PAUSE in sing.ROOT.parameters.keys() and sing.ROOT.parameters[PAUSE]:
+            return
+
+        self.timer += sing.ROOT.delta
+        cur_time = self.timer
         note_rend: NoteRenderer = sing.ROOT.game_objects["rend"]
 
-        if self.note_index > len(note_rend.notes):
+        if self.note_index >= len(note_rend.notes):
             return
 
         if self.mov_vec is None:
@@ -52,16 +97,16 @@ class Star(GameObject):
         if pygame.K_SPACE in sing.ROOT.key_downs:
             print("Pressed")
             print(cur_time, note_rend.notes[self.note_index].timing)
-            diff = abs(cur_time - note_rend.notes[self.note_index].timing)
+            diff = abs(cur_time - note_rend.notes[self.note_index].timing / 1000)
 
-            if diff <= PERFECT:
+            if diff <= PERFECT / 1000:
                 print("Perfect")
                 sing.ROOT.add_gameObject(Assessment(note_rend.notes[self.note_index].pos + Vector2(0, -20),
                                                     PERFECT))
                 self.note_index += 1
                 self.new_vec()
                 note_rend.on_note_destroy()
-            elif diff <= OK:
+            elif diff <= OK / 1000:
                 print("Ok")
                 sing.ROOT.add_gameObject(Assessment(note_rend.notes[self.note_index].pos + Vector2(0, -20),
                                                     OK))
@@ -72,12 +117,12 @@ class Star(GameObject):
                 print("Nope")
 
     def new_vec(self):
-        cur_time = pygame.time.get_ticks() - self.start_time
+        cur_time = self.timer
         note_rend: NoteRenderer = sing.ROOT.game_objects["rend"]
         if self.note_index >= len(note_rend.notes):
             return
         note = note_rend.notes[self.note_index]
-        self.mov_vec = (note.pos - self.get_real_pos()) / (abs(cur_time - note.timing) / 1000)
+        self.mov_vec = (note.pos - self.get_real_pos()) / (abs(cur_time - note.timing / 1000))
 
     def blit(self, screen: pygame.Surface, apply_alpha=True) -> None:
         sing.ROOT.camera_pos = self.get_real_pos()

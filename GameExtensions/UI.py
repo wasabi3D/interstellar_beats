@@ -19,7 +19,8 @@ class BaseUIObject(GameObject):
                  rotation: float,
                  image: pygame.Surface,
                  name: str,
-                 anchor: str = NW):
+                 anchor: str = NW,
+                 global_cords: bool = False):
         """
 
         :param pos: La position sur l'écran
@@ -31,9 +32,12 @@ class BaseUIObject(GameObject):
         """
         super().__init__(pos, rotation, image, name)
         self.anchor = anchor
+        self.global_cords = global_cords
 
     def get_real_pos(self) -> pygame.Vector2:
         pre = super().get_real_pos()
+        if self.global_cords:
+            return pre
         if self.parent is None:
             x_modif = sing.ROOT.screen_dim[0] / 2
             y_modif = sing.ROOT.screen_dim[1] / 2
@@ -65,10 +69,14 @@ class BaseUIObject(GameObject):
             return pre
 
     def get_screen_pos(self) -> pygame.Vector2:
-        # return self.get_real_pos() - pygame.Vector2(sing.ROOT.screen_dim[0] / 2, sing.ROOT.screen_dim[1] / 2)
+        if self.global_cords:
+            return super().get_screen_pos()
         return self.get_real_pos()
 
     def blit(self, screen: pygame.Surface, apply_alpha=True) -> None:
+        if self.global_cords:
+            super().blit(screen, apply_alpha)
+            return
         if not self.enabled:
             return
         pos = self.get_real_pos()
