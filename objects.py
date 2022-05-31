@@ -22,6 +22,7 @@ class PauseManager(GameObject):
     def __init__(self):
         super().__init__(Vector2(0, 0), 0, pygame.Surface((0, 0)), "pause_manager")
         self.music_paused = False
+        sing.ROOT.set_parameter(PAUSE, False)
 
     def early_update(self) -> None:
         if pygame.K_ESCAPE in sing.ROOT.key_downs:
