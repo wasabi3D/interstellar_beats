@@ -5,6 +5,7 @@ import GameManager.util as util
 import re
 from typing import Optional
 from collections import OrderedDict
+from screeninfo import get_monitors
 
 
 class GameRoot:
@@ -13,7 +14,8 @@ class GameRoot:
     La classe pour la géstion du jeu entière
     """
     def __init__(self, screen_dimension: tuple[int, int], default_background_color: tuple[int, int, int], title: str,
-                 resources_root_path: str, camera_pos: pygame.Vector2, fps_limit=60, display_flag=pygame.SCALED):
+                 resources_root_path: str, camera_pos: pygame.Vector2, fps_limit=60, display_flag=pygame.SCALED,
+                 adjust_full_screen_size=True):
         """
 
         :param screen_dimension: La dimension de la fenêtre
@@ -26,13 +28,17 @@ class GameRoot:
         """
         pygame.init()
         sing.ROOT = self
-        self.display: pygame.Surface = pygame.display.set_mode(screen_dimension, flags=display_flag)
+        dimx, dimy = screen_dimension
+        if adjust_full_screen_size:
+            scrx, scry = get_monitors()[0].width, get_monitors()[0].height
+            dimx, dimy = min(dimx, scrx), min(dimy, scry)
+        self.display: pygame.Surface = pygame.display.set_mode((dimx, dimy), flags=display_flag)
         pygame.display.set_caption(title)
         self.background: tuple[int, int, int] = default_background_color
         self.fps_limit = fps_limit
         self.clock = pygame.time.Clock()
         self.delta = 0
-        self.screen_dim = screen_dimension
+        self.screen_dim = (dimx, dimy)
         self.resources_path = resources_root_path
         self.key_ups = []
         self.key_downs = []

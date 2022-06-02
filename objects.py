@@ -10,7 +10,7 @@ from pygame.math import Vector2
 
 from locals import *
 
-from typing import Union
+from typing import Union, Any
 import pathlib
 import os
 
@@ -177,6 +177,64 @@ class Assessment(TextLabel):
             sing.ROOT.remove_object(self)
 
 
+class ExampleStar(BaseUIObject):
+    def __init__(self, image: pygame.Surface, hide_rects: list[pygame.Rect], name: str):
+        super().__init__(Vector2(0, 0), 0, image, name)
+        self.hide = False
+        self.hide_rects = hide_rects
+
+    def early_update(self) -> None:
+        mouse_pos = tuple2Vec2(pygame.mouse.get_pos())
+        self.translate(mouse_pos, False)
+        self.hide = any(map(lambda rct: is_included(mouse_pos, rct), self.hide_rects))
+        sing.ROOT.set_parameter("can_place_stars", not self.hide)
+
+    def blit(self, screen: pygame.Surface, apply_alpha=True) -> None:
+        if not self.hide:
+            super().blit(screen, apply_alpha)
+
+
+class Map:
+    NOTE = 0
+    BPM_CH = 1
+
+    def __init__(self, map_name: str, music_path: str):
+        self.map_name = map_name
+        self.music: str = music_path
+        self.bpm: int
+        self.speed: int
+        self.instructions: list[tuple[int, Any]] = []
+
+    def add_note(self, pos: Vector2):
+        self.instructions.append((Map.NOTE, (pos.x, pos.y)))
+
+    def change_bpm(self, new_bpm: int):
+        self.instructions.append((Map.BPM_CH, new_bpm))
+
+
+class MapBuilder(GameObject):
+    def __init__(self):
+        super().__init__(Vector2(0, 0), 0, pygame.Surface((0, 0)), "map_builder")
+        self.map: Map = sing.ROOT.parameters["editing_map"]
+        self.star_cnt = 0
+        sing.ROOT.set_parameter("can_place_stars", False)
+
+    def early_update(self) -> None:
+        if "star_mode" in sing.ROOT.parameters and sing.ROOT.parameters["star_mode"] and\
+                sing.ROOT.mouse_downs[MOUSE_LEFT] and sing.ROOT.parameters["can_place_stars"]:
+            scrdim = sing.ROOT.screen_dim
+            pos = sing.ROOT.camera_pos + tuple2Vec2(pygame.mouse.get_pos()) - Vector2(scrdim[0], scrdim[1]) / 2
+            self.map.add_note(pos)
+            self.children.add_gameobjects(GameObject(pos, 0, load_img("resources/images/star.png", (32, 32)),
+                                                     f"edit_star{self.star_cnt}"))
+            self.star_cnt += 1
+
+    def save(self):
+        import json
+        with open(f"resources/maps/{self.map.map_name}.scr", 'w') as f:
+            json.dump(self.map.__dict__, f)
+
+
 def load_map(path: Union[pathlib.Path, str]) -> list[Note]:
     lst = []
     with open(os.path.join(sing.ROOT.resources_path, path), "r") as f:
@@ -187,5 +245,8 @@ def load_map(path: Union[pathlib.Path, str]) -> list[Note]:
             lst.append(Note(tuple2Vec2(pos), timing, i))
 
     return lst
+
+
+
 
 
