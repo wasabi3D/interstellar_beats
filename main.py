@@ -10,19 +10,21 @@ from pygame import Vector2
 
 import os
 import shutil
+import pathlib
+import typing
 
 
-def play(edit_mode=False):
+def play(map_data_path: typing.Union[pathlib.Path, str], edit_mode=False):
     if not edit_mode:
         sing.ROOT.clear_objects()
-    load_sound("resources/musics/surface.mp3", "music")
-    star = Star(Vector2(0, 0), 10, sing.ROOT.sounds["music"], "star")
-    notes = load_map("resources/maps/surface.scr")
+    notes = load_map(map_data_path)
+    map_reader = MapReader(notes)
+    star = Star(Vector2(0, 0), 10, sing.ROOT.sounds["music"], map_reader, "star")
 
-    sing.ROOT.add_gameObject(star, NoteRenderer(notes), PauseManager())
+    sing.ROOT.add_gameObject(star, NoteRenderer(map_reader), PauseManager())
 
 
-def edit(music: pygame.mixer.Sound):
+def edit():
     sing.ROOT.clear_objects()
     background = BaseUIObject(Vector2(-120, 0), 0, load_img("resources/UI/background.png", (50, 250)),
                               "menu_background", anchor=E)
@@ -67,8 +69,7 @@ def edit(music: pygame.mixer.Sound):
             sing.ROOT.set_parameter("SPD", int(sing.ROOT.game_objects["settings_background"].children["spd_textbox"].text))
             sing.ROOT.parameters["editing_map"].map_name = sing.ROOT.game_objects["settings_background"].children["name_textbox"].text
 
-        if "edit_settings_already_opened" in sing.ROOT.parameters and sing.ROOT.parameters[
-            "edit_settings_already_opened"]:
+        if "edit_settings_already_opened" in sing.ROOT.parameters and sing.ROOT.parameters["edit_settings_already_opened"]:
             sing.ROOT.game_objects["settings_background"].set_enabled(True)
         else:
             bc = BaseUIObject(Vector2(0, 0), 0, load_img("resources/UI/background.png", (270, 250)),
@@ -107,8 +108,11 @@ def edit(music: pygame.mixer.Sound):
     def play_mode():
         exit_star()
         background.set_enabled(False)
+        sing.ROOT.game_objects["map_builder"].set_enabled(False)
         if "settings_background" in sing.ROOT.game_objects:
             sing.ROOT.game_objects["settings_background"].set_enabled(False)
+        export()
+        play(sing.ROOT.game_objects["map_builder"].get_path(), edit_mode=True)
 
     play_btn = Button(Vector2(0, 200), 0, load_img("resources/UI/edit/play.png"), "play_btn",
                       on_mouse_down_func=play_mode, anchor=N)
@@ -138,7 +142,7 @@ def edit_choose_music():
                                    (200, 200, 200), "display_path_label", anchor=CENTER)
     go_btn = Button(Vector2(0, 140), 0, pygame.Surface((50, 50)), "go_btn",
                     text="Go", font=pygame.font.SysFont("Arial", 20), text_color=(200, 200, 200),
-                    on_mouse_up_func=lambda: edit(sing.ROOT.sounds["edit_music"]), anchor=CENTER)
+                    on_mouse_up_func=edit, anchor=CENTER)
     go_btn.set_enabled(False)
 
     def ask_file():
@@ -152,6 +156,7 @@ def edit_choose_music():
         go_btn.set_enabled(True)
         map_def_name = os.path.basename(file_name)
         shutil.copy(file_name, "resources/musics/")
+        load_sound(os.path.join("resources/musics/", file_name), "music")
         sing.ROOT.set_parameter("editing_map", Map(map_def_name, os.path.join("resources/musics/", map_def_name)))
         sing.ROOT.set_parameter("BPM", 90)
         sing.ROOT.set_parameter("SPD", 100)

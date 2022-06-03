@@ -1,7 +1,3 @@
-from GameManager.util import GameObject, tuple2Vec2
-import GameManager.singleton as sing
-from GameManager.resources import load_img
-
 from GameExtensions.UI import *
 from GameExtensions.locals import *
 
@@ -12,10 +8,121 @@ from locals import *
 
 from typing import Union, Any
 import pathlib
-import os
 
 
 PAUSE = "pause"
+
+
+class Map:
+    NOTE = 0
+    BPM_CH = 1
+    SPD_CH = 2
+
+    def __init__(self, map_name: str, music_path: str):
+        self.map_name = map_name
+        self.music: str = music_path
+        self.instructions: list[tuple[int, Any]] = []
+
+    def add_note(self, pos: Vector2, timing: int):
+        self.instructions.append((Map.NOTE, (pos.x, pos.y, timing)))
+
+    def change_bpm(self, new_bpm: int):
+        self.instructions.append((Map.BPM_CH, new_bpm))
+
+    def change_speed(self, new_spd: int):
+        self.instructions.append((Map.SPD_CH, new_spd))
+
+
+class MapBuilder(GameObject):
+    def __init__(self):
+        super().__init__(Vector2(0, 0), 0, pygame.Surface((0, 0)), "map_builder")
+        self.map: Map = sing.ROOT.parameters["editing_map"]
+        self.star_cnt = 0
+        self.last_note_pos = Vector2(0, 0)
+        self.cur_timing = 0
+        self.cur_bpm = 90
+        self.cur_spd = 100
+        sing.ROOT.set_parameter("can_place_stars", False)
+
+    def early_update(self) -> None:
+        if "star_mode" in sing.ROOT.parameters and sing.ROOT.parameters["star_mode"] and\
+                sing.ROOT.mouse_downs[MOUSE_LEFT] and sing.ROOT.parameters["can_place_stars"]:
+            scrdim = sing.ROOT.screen_dim
+            pos = sing.ROOT.camera_pos + tuple2Vec2(pygame.mouse.get_pos()) - Vector2(scrdim[0], scrdim[1]) / 2
+            dist = pos.distance_to(self.last_note_pos)
+            beat = dist / self.cur_spd
+            time_min = beat / self.cur_bpm  # minute
+            self.cur_timing += time_min * 60 * 1000
+            self.map.add_note(pos, self.cur_timing)
+            self.children.add_gameobjects(GameObject(pos, 0, load_img("resources/images/star.png", (32, 32)),
+                                                     f"edit_star{self.star_cnt}"))
+            self.star_cnt += 1
+            self.last_note_pos = pos.copy()
+
+    def save(self):
+        import json
+        with open(self.get_path(), 'w') as f:
+            json.dump(self.map.__dict__, f)
+
+    def get_path(self) -> str:
+        return f"resources/maps/{self.map.map_name}.scr"
+
+
+class MapReader:
+    def __init__(self, target_map: Map):
+        self.map: Map = target_map
+        self.inst_index = 0
+        self.current_bpm = 90
+        self.current_spd = 100
+        self.end = False
+        self.notes: list[Vector2] = []
+        self.extract_notes()
+
+    def extract_notes(self):
+        for i, inst in enumerate(self.map.instructions):
+            if inst[0] == Map.NOTE:
+                self.notes.append(tuple2Vec2(inst[1][:2]))
+
+    def execute_next(self) -> Optional[tuple[Vector2, int]]:
+        for i, inst in enumerate(self.map.instructions[self.inst_index:]):
+            if inst[0] == Map.NOTE:
+                self.inst_index = i + self.inst_index + 1
+                return Vector2(inst[1][0], inst[1][1]), inst[1][2]
+            elif inst[0] == Map.BPM_CH:
+                self.current_bpm = inst[1]
+            elif inst[0] == Map.SPD_CH:
+                self.current_spd = inst[1]
+
+        self.inst_index = len(self.map.instructions)
+        self.end = True
+        return None
+
+
+class NoteRenderer(GameObject):
+    def __init__(self, map_red: MapReader):
+        super().__init__(Vector2(0, 0), 0, pygame.Surface((0, 0)), "rend")
+        self.map_reader = map_red
+        self.draw_begin = 0
+        self.draw_end = 3
+        self.star_objects: list[Note] = []
+        self.convert2stars()
+
+    def on_note_destroy(self):
+        self.draw_begin += 1
+        self.draw_end += 1
+
+    def convert2stars(self):
+        self.star_objects = list(map(lambda n: Note(n[1], 0, n[0]), enumerate(self.map_reader.notes)))
+
+    def blit(self, screen: pygame.Surface, apply_alpha=True) -> None:
+        lst = self.star_objects[self.draw_begin:min(self.draw_end, len(self.map_reader.notes))]
+        for i, n in enumerate(lst):
+            # pygame.draw.circle(screen, (140, 140, 50), self.get_screen_pos() + n.pos, 5)
+            if i < len(lst) - 1:
+                vec = (lst[i + 1].pos - n.pos).normalize()
+                pygame.draw.line(screen, (140, 30, 30), n.pos + self.get_screen_pos(),
+                                 self.get_screen_pos() + n.pos + vec * 50, width=1)
+            n.blit(screen, apply_alpha)
 
 
 class PauseManager(GameObject):
@@ -57,16 +164,18 @@ class PauseManager(GameObject):
 
 
 class Star(GameObject):
-    def __init__(self, pos: Vector2, radius: int, sound: pygame.mixer.Sound, name: str):
+    def __init__(self, pos: Vector2, radius: int, sound: pygame.mixer.Sound, map_reader: MapReader, name: str):
         super().__init__(pos, 0, pygame.Surface((0, 0)), name)
         self.radius = radius
-        self.note_index = 0
+        self.next_note: Optional[tuple[Vector2, int]] = None
 
         self.start_time = 0
         self.mov_vec = None
         self.started = False
 
         self.music = sound
+
+        self.map_reader = map_reader
 
         self.timer = 0
 
@@ -87,7 +196,7 @@ class Star(GameObject):
         cur_time = self.timer
         note_rend: NoteRenderer = sing.ROOT.game_objects["rend"]
 
-        if self.note_index >= len(note_rend.notes):
+        if self.map_reader.end:
             return
 
         if self.mov_vec is None:
@@ -96,22 +205,16 @@ class Star(GameObject):
         self.translate(self.mov_vec * sing.ROOT.delta)
 
         if pygame.K_SPACE in sing.ROOT.key_downs:
-            print("Pressed")
-            print(cur_time, note_rend.notes[self.note_index].timing)
-            diff = abs(cur_time - note_rend.notes[self.note_index].timing / 1000)
+            diff = abs(cur_time - self.next_note[1] / 1000)
 
             if diff <= PERFECT / 1000:
                 print("Perfect")
-                sing.ROOT.add_gameObject(Assessment(note_rend.notes[self.note_index].pos + Vector2(0, -20),
-                                                    PERFECT))
-                self.note_index += 1
+                sing.ROOT.add_gameObject(Assessment(self.next_note[0] + Vector2(0, -20), PERFECT))
                 self.new_vec()
                 note_rend.on_note_destroy()
             elif diff <= OK / 1000:
                 print("Ok")
-                sing.ROOT.add_gameObject(Assessment(note_rend.notes[self.note_index].pos + Vector2(0, -20),
-                                                    OK))
-                self.note_index += 1
+                sing.ROOT.add_gameObject(Assessment(self.next_note[0] + Vector2(0, -20), OK))
                 self.new_vec()
                 note_rend.on_note_destroy()
             else:
@@ -119,11 +222,11 @@ class Star(GameObject):
 
     def new_vec(self):
         cur_time = self.timer
-        note_rend: NoteRenderer = sing.ROOT.game_objects["rend"]
-        if self.note_index >= len(note_rend.notes):
+
+        if self.map_reader.end:
             return
-        note = note_rend.notes[self.note_index]
-        self.mov_vec = (note.pos - self.get_real_pos()) / (abs(cur_time - note.timing / 1000))
+        self.next_note = self.map_reader.execute_next()
+        self.mov_vec = (self.next_note[0] - self.get_real_pos()) / (abs(cur_time - self.next_note[1] / 1000))
 
     def blit(self, screen: pygame.Surface, apply_alpha=True) -> None:
         sing.ROOT.camera_pos = self.get_real_pos()
@@ -135,28 +238,6 @@ class Note(GameObject):
         super().__init__(pos, 0, load_img("resources/images/star.png", (32, 32)), f"star{sid}")
         self.pos = pos
         self.timing = timing
-
-
-class NoteRenderer(GameObject):
-    def __init__(self, notes: list[Note]):
-        super().__init__(Vector2(0, 0), 0, pygame.Surface((0, 0)), "rend")
-        self.notes = notes
-        self.draw_begin = 0
-        self.draw_end = 3
-
-    def on_note_destroy(self):
-        self.draw_begin += 1
-        self.draw_end += 1
-
-    def blit(self, screen: pygame.Surface, apply_alpha=True) -> None:
-        lst = self.notes[self.draw_begin:min(self.draw_end, len(self.notes))]
-        for i, n in enumerate(lst):
-            # pygame.draw.circle(screen, (140, 140, 50), self.get_screen_pos() + n.pos, 5)
-            if i < len(lst) - 1:
-                vec = (lst[i + 1].pos - n.pos).normalize()
-                pygame.draw.line(screen, (140, 30, 30), n.pos + self.get_screen_pos(),
-                                 self.get_screen_pos() + n.pos + vec * 50, width=1)
-            n.blit(screen, apply_alpha)
 
 
 class Assessment(TextLabel):
@@ -194,57 +275,19 @@ class ExampleStar(BaseUIObject):
             super().blit(screen, apply_alpha)
 
 
-class Map:
-    NOTE = 0
-    BPM_CH = 1
-
-    def __init__(self, map_name: str, music_path: str):
-        self.map_name = map_name
-        self.music: str = music_path
-        self.bpm: int
-        self.speed: int
-        self.instructions: list[tuple[int, Any]] = []
-
-    def add_note(self, pos: Vector2):
-        self.instructions.append((Map.NOTE, (pos.x, pos.y)))
-
-    def change_bpm(self, new_bpm: int):
-        self.instructions.append((Map.BPM_CH, new_bpm))
-
-
-class MapBuilder(GameObject):
-    def __init__(self):
-        super().__init__(Vector2(0, 0), 0, pygame.Surface((0, 0)), "map_builder")
-        self.map: Map = sing.ROOT.parameters["editing_map"]
-        self.star_cnt = 0
-        sing.ROOT.set_parameter("can_place_stars", False)
-
-    def early_update(self) -> None:
-        if "star_mode" in sing.ROOT.parameters and sing.ROOT.parameters["star_mode"] and\
-                sing.ROOT.mouse_downs[MOUSE_LEFT] and sing.ROOT.parameters["can_place_stars"]:
-            scrdim = sing.ROOT.screen_dim
-            pos = sing.ROOT.camera_pos + tuple2Vec2(pygame.mouse.get_pos()) - Vector2(scrdim[0], scrdim[1]) / 2
-            self.map.add_note(pos)
-            self.children.add_gameobjects(GameObject(pos, 0, load_img("resources/images/star.png", (32, 32)),
-                                                     f"edit_star{self.star_cnt}"))
-            self.star_cnt += 1
-
-    def save(self):
-        import json
-        with open(f"resources/maps/{self.map.map_name}.scr", 'w') as f:
-            json.dump(self.map.__dict__, f)
-
-
-def load_map(path: Union[pathlib.Path, str]) -> list[Note]:
-    lst = []
-    with open(os.path.join(sing.ROOT.resources_path, path), "r") as f:
-        for i, line in enumerate(f.readlines()):
-            pos, timing = line.split(";")
-            pos = tuple(map(lambda c: int(c), pos.split(",")))
-            timing = int(timing)
-            lst.append(Note(tuple2Vec2(pos), timing, i))
-
-    return lst
+def load_map(path: Union[pathlib.Path, str]) -> Map:
+    # lst = []
+    # with open(os.path.join(sing.ROOT.resources_path, path), "r") as f:
+    #     for i, line in enumerate(f.readlines()):
+    #         pos, timing = line.split(";")
+    #         pos = tuple(map(lambda c: int(c), pos.split(",")))
+    #         timing = int(timing)
+    #         lst.append(Note(tuple2Vec2(pos), timing, i))
+    import json
+    with open(path, "r") as f:
+        mp = Map("", "")
+        mp.__dict__ = json.load(f)
+    return mp
 
 
 
